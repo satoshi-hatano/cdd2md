@@ -38,11 +38,19 @@ def html_to_markdown(html_content):
     body = soup.find('div', class_='devsite-article-body clearfix')
     for e in body(filter):
         e.decompose()
-
     return parse_element(body)
 
 
-def parse_element(element):
+CONDITION = ''
+def parse_element(element, depth=0):
+    def is_requirement(text:str)->bool:
+        req_word = ["MUST", "REQUIRED", "SHALL", "SHOULD", "RECOMMENDED", "MAY", "OPTIONAL"]
+        for w in rew_word:
+            if w in text:
+                return True
+        return False
+
+    global CONDITION
     markdown_text = ""
 
     for child in element.children:
@@ -54,47 +62,65 @@ def parse_element(element):
 
         if tag_name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             level = int(tag_name[1])
-#            print(f"\n\n{'#' * level} {parse_element(child).strip()}\n\n")
             markdown_text += f"\n\n{'#' * level} {parse_element(child).strip()}\n\n"
 
         elif tag_name in ["p", "div"]:
-#            print(f"\n\n{parse_element(child).strip()}\n\n")
-            markdown_text += f"\n\n{parse_element(child).strip()}\n\n"
+            text = parse_element(child).strip().replace('\n', ' ')
+            if tag_name == 'p' and text.endswith(':'):
+                CONDITION = text
+            markdown_text += f"\n\n{text}\n\n"
 
-        elif tag_name in ["strong", "b"]:
+#        elif tag_name in ["strong", "b"]:
 #            print(f"**{parse_element(child)}**")
-            markdown_text += f"**{parse_element(child)}**"
+#            markdown_text += f"**{parse_element(child)}**"
 
-        elif tag_name in ["em", "i"]:
+#        elif tag_name in ["em", "i"]:
 #            print(f"*{parse_element(child)}*")
-            markdown_text += f"*{parse_element(child)}*"
+#            markdown_text += f"*{parse_element(child)}*"
 
         elif tag_name == "a":
-#            href = child.get("href", "")
-#            print(f"{parse_element(child)}")
-#            markdown_text += f"[{parse_element(child)}]({href})"
-            text = parse_element(child)
-            markdown_text += text
+            markdown_text += parse_element(child)
 
         elif tag_name == "br":
-#            print()
             markdown_text += "  \n"
 
         elif tag_name in ["ul", "ol"]:
-#            print(f"\n\n{parse_element(child).strip()}\n\n")
-            markdown_text += f"\n\n{parse_element(child).strip()}\n\n"
+            if element.name == 'li':
+                markdown_text += f"\n{parse_element(child, depth + 1)}"
+            else:
+                markdown_text += f"\n\n{parse_element(child, depth + 1)}\n\n"
+            if depth == 0:
+                # 最上位の<ul>/<ol>が処理されたら条件をクリアする
+                CONDITION = ''
 
         elif tag_name == "li":
             parent_name = child.parent.name if child.parent else "ul"
-            if parent_name == "ol":
-#                print(f"1. {parse_element(child).strip()}\n")
-                markdown_text += f"1. {parse_element(child).strip()}\n"
+            # ネストレベルに応じたインデント（深さ1以上なら半角スペース4つずつ追加）
+            indent = "    " * max(0, depth - 1)
+            # リスト記号の設定
+            prefix = "1. " if parent_name == "ol" else "* "
+            if child.string:
+                # 子要素がない
+                content = child.string.replace('\n', ' ')
             else:
-#                print(f"* {parse_element(child).strip()}\n")
-                markdown_text += f"* {parse_element(child).strip()}\n"
+                # 子要素の解析結果を取得
+                content = parse_element(child, depth).strip()
+                if not re.search('\\n +\\*', content):
+                    # 入れ子の<li>がない
+                    content = content.replace('\n', ' ')
+            if depth == 0 and is_requirement(content):
+                n = content.find(']') + 1
+                s1 = content[:n]
+                s2 = content[n:]
+                content = f'{s1} ({CONDITION}) {s2}'
+
+            # 1行として出力
+            markdown_text += f"{indent}{prefix}{content}\n"
+
+        elif tag_name == 'table':
+            markdown_text += table_to_markdown(child)
 
         else:
-#            print(parse_element(child))
             markdown_text += parse_element(child)
 
     return clean_extra_newlines(markdown_text)
@@ -103,7 +129,59 @@ def parse_element(element):
 def clean_extra_newlines(text):
     # 3つ以上連続する改行を2つにまとめる
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+
+    # 先頭の「改行のみ」を削除（インデント用の半角スペースは保持）
+    text = re.sub(r"^\n+", "", text)
+
+    # 末尾の無駄な空白や改行を削除
+    return text.rstrip()
+
+
+def table_to_markdown(table) -> str:
+    """
+    Convert BeautifulSoup Table tag object to Markdown format
+
+    Args:
+        table: BeautifulSoup Table tag object
+
+    Returns:
+        str: Table string in Markdown format
+    """
+    if not table:
+        return "No table found"
+
+    markdown_lines = []
+
+    ## Process headers
+    headers = []
+    for th in table.find_all('th'):
+        ## Replace <br> and <br/> with newline
+        header_text = str(th)
+        header_text = header_text.replace('<br>', '\n').replace('<br/>', '\n')
+        header_soup = BeautifulSoup(header_text, 'html.parser')
+        header = re.sub('\\s', ' ', header_soup.get_text()).strip()
+        headers.append(header)
+
+    if headers:
+        markdown_lines.append('| ' + ' | '.join(headers) + ' |')
+        markdown_lines.append('| ' + ' | '.join(['---' for _ in headers]) + ' |')
+
+    ## Process data rows
+    for row in table.find_all('tr'):
+        cols = []
+        for td in row.find_all('td'):
+            ## Replace <br> and <br/> with newline
+            cell_text = str(td)
+            cell_text = cell_text.replace('<br>', '\n').replace('<br/>', '\n')
+            cell_soup = BeautifulSoup(cell_text, 'html.parser')
+            col = re.sub('\\s', ' ', cell_soup.get_text()).strip()
+            ## Replace any remaining newlines with actual line breaks
+            col = col.replace('\n', '<br>')
+            cols.append(col)
+        if cols:  ## Ignore empty rows
+            markdown_lines.append('| ' + ' | '.join(cols) + ' |')
+
+    return '\n'.join(markdown_lines)
 
 
 # --- 動作確認 ---
