@@ -61,7 +61,7 @@ def parse_element(element, depth=0):
 
     for child in element.children:
         if isinstance(child, NavigableString):
-            markdown_text += str(child).strip() # @@@ add strip
+            markdown_text += str(child) #.rstrip() # @@@ add strip
             continue
 
         tag_name = child.name
@@ -92,6 +92,9 @@ def parse_element(element, depth=0):
 
         elif tag_name == "br":
             markdown_text += "  \n"
+
+        elif tag_name == 'code':
+            markdown_text += parse_element(child)
 
         elif tag_name in ["ul", "ol"]:
             if element.name == 'li':
