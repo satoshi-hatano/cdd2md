@@ -1,7 +1,7 @@
 import re
 from bs4 import BeautifulSoup, NavigableString
 import requests
-
+import argparse
 
 def url_to_markdown(url):
     try:
@@ -24,6 +24,12 @@ def url_to_markdown(url):
         return f"エラー: HTMLの取得に失敗しました。({e})"
 
 
+def file_to_markdown(path:str):
+    with open(path, 'r', encoding='UTF-8') as file:
+        contents = file.read()
+        return html_to_markdown(contents)
+
+
 def html_to_markdown(html_content):
     def filter(tag):
         if tag.name == 'style' or tag.name == 'del':
@@ -44,8 +50,8 @@ def html_to_markdown(html_content):
 CONDITION = ''
 def parse_element(element, depth=0):
     def is_requirement(text:str)->bool:
-        req_word = ["MUST", "REQUIRED", "SHALL", "SHOULD", "RECOMMENDED", "MAY", "OPTIONAL"]
-        for w in rew_word:
+        req_word = ['MUST', 'REQUIRED', 'SHALL', 'SHOULD', 'RECOMMENDED', 'MAY', 'OPTIONAL']
+        for w in req_word:
             if w in text:
                 return True
         return False
@@ -55,7 +61,7 @@ def parse_element(element, depth=0):
 
     for child in element.children:
         if isinstance(child, NavigableString):
-            markdown_text += str(child)
+            markdown_text += str(child).strip() # @@@ add strip
             continue
 
         tag_name = child.name
@@ -63,12 +69,15 @@ def parse_element(element, depth=0):
         if tag_name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             level = int(tag_name[1])
             markdown_text += f"\n\n{'#' * level} {parse_element(child).strip()}\n\n"
+            CONDITION = ''
 
         elif tag_name in ["p", "div"]:
             text = parse_element(child).strip().replace('\n', ' ')
             if tag_name == 'p' and text.endswith(':'):
+                # 末尾が':'の<p>要素は条件とみなす
                 CONDITION = text
-            markdown_text += f"\n\n{text}\n\n"
+            else:
+                markdown_text += f"\n\n{text}\n\n"
 
 #        elif tag_name in ["strong", "b"]:
 #            print(f"**{parse_element(child)}**")
@@ -89,9 +98,9 @@ def parse_element(element, depth=0):
                 markdown_text += f"\n{parse_element(child, depth + 1)}"
             else:
                 markdown_text += f"\n\n{parse_element(child, depth + 1)}\n\n"
-            if depth == 0:
+#            if depth == 0:
                 # 最上位の<ul>/<ol>が処理されたら条件をクリアする
-                CONDITION = ''
+#                CONDITION = ''
 
         elif tag_name == "li":
             parent_name = child.parent.name if child.parent else "ul"
@@ -108,11 +117,21 @@ def parse_element(element, depth=0):
                 if not re.search('\\n +\\*', content):
                     # 入れ子の<li>がない
                     content = content.replace('\n', ' ')
-            if depth == 0 and is_requirement(content):
-                n = content.find(']') + 1
-                s1 = content[:n]
-                s2 = content[n:]
-                content = f'{s1} ({CONDITION}) {s2}'
+            if (depth - 1) == 0 and CONDITION:
+                # 最上位の<li>で条件がある場合
+                if is_requirement(content) or is_requirement(CONDITION):
+                    # <li>が要件なら間に条件を挟む
+                    if (n := content.find(']') + 1) > 0:
+                        # 要件IDがある場合は、要件IDと本文の間に挿入する
+                        s1 = content[:n]
+                        s2 = content[n:]
+                        content = f'{s1} ({CONDITION}) {s2}'
+                    else:
+                        content = f'({CONDITION}) {content}'
+                else:
+                    # 要件でない場合は、条件はそのまま出力する
+                    markdown_text += f"\n\n{CONDITION}\n\n"
+                    CONDITION = ''
 
             # 1行として出力
             markdown_text += f"{indent}{prefix}{content}\n"
@@ -143,7 +162,6 @@ def table_to_markdown(table) -> str:
 
     Args:
         table: BeautifulSoup Table tag object
-
     Returns:
         str: Table string in Markdown format
     """
@@ -186,11 +204,23 @@ def table_to_markdown(table) -> str:
 
 # --- 動作確認 ---
 if __name__ == "__main__":
-    # 変換したいURLを指定してください
-    target_url = "https://source.android.com/docs/compatibility/15/android-15-cdd?hl=en"
+    parser = argparse.ArgumentParser(description='''Android CDDをMarkdown形式に変換する。
 
-    print(f"{target_url} からの変換を開始します...\n")
-    markdown_result = url_to_markdown(target_url)
+パラメータが'http:'または'https:'で始まる場合は、CDDのURLとみなして直接変換する。
+そうでない場合は、ローカル保存されたCDDのHTMLファイルとして処理する。
+
+出力されるMarkdownファイルのファイル名は、
+　　Android$(バージョン)CompatibilityDefinition_処理日付.md
+となる。$(バージョン)はAndroidバージョンNo.となる。''')
+    parser.add_argument('uri', type=str, nargs='?', default='https://source.android.com/docs/compatibility/15/android-15-cdd?hl=en', help='Android CDDのURLまたはローカルファイルパスを指定する')
+    args = parser.parse_args()
+    print(f"{args.uri} からの変換を開始します...\n")
+
+    if not (url := args.uri).startswith('http:') and not url.startswith('https:'):
+        markdown_result = file_to_markdown(url)
+    else:
+        url = "https://source.android.com/docs/compatibility/15/android-15-cdd?hl=en"
+        markdown_result = url_to_markdown(url)
 
     print("--- 変換結果 ---")
     with open('hoge.md', mode='w') as f:
