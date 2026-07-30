@@ -61,14 +61,16 @@ def parse_element(element, depth=0):
 
     for child in element.children:
         if isinstance(child, NavigableString):
-            markdown_text += str(child) #.rstrip() # @@@ add strip
+            if (s := str(child).strip()):
+                markdown_text += str(child) #.rstrip() # @@@ add strip
             continue
 
         tag_name = child.name
 
         if tag_name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             level = int(tag_name[1])
-            markdown_text += f"\n\n{'#' * level} {parse_element(child).strip()}\n\n"
+#            markdown_text += f"\n\n{'#' * level} {parse_element(child).strip()}\n\n"
+            markdown_text += f"{'#' * level} {parse_element(child).strip()}\n\n"
             CONDITION = ''
 
         elif tag_name in ["p", "div"]:
@@ -77,7 +79,8 @@ def parse_element(element, depth=0):
                 # 末尾が':'の<p>要素は条件とみなす
                 CONDITION = text
             else:
-                markdown_text += f"\n\n{text}\n\n"
+#                markdown_text += f"\n\n{text}\n\n"
+                markdown_text += f"{text}\n\n"
 
 #        elif tag_name in ["strong", "b"]:
 #            print(f"**{parse_element(child)}**")
@@ -87,20 +90,18 @@ def parse_element(element, depth=0):
 #            print(f"*{parse_element(child)}*")
 #            markdown_text += f"*{parse_element(child)}*"
 
-        elif tag_name == "a":
+        elif tag_name in ["a", 'code']:
             markdown_text += parse_element(child)
 
         elif tag_name == "br":
             markdown_text += "  \n"
 
-        elif tag_name == 'code':
-            markdown_text += parse_element(child)
-
         elif tag_name in ["ul", "ol"]:
             if element.name == 'li':
                 markdown_text += f"\n{parse_element(child, depth + 1)}"
             else:
-                markdown_text += f"\n\n{parse_element(child, depth + 1)}\n\n"
+#                markdown_text += f"\n\n{parse_element(child, depth + 1)}\n\n"
+                markdown_text += f"{parse_element(child, depth + 1)}\n\n"
 #            if depth == 0:
                 # 最上位の<ul>/<ol>が処理されたら条件をクリアする
 #                CONDITION = ''
@@ -128,12 +129,12 @@ def parse_element(element, depth=0):
                         # 要件IDがある場合は、要件IDと本文の間に挿入する
                         s1 = content[:n]
                         s2 = content[n:]
-                        content = f'{s1} ({CONDITION}) {s2}'
+                        content = f'{s1} ({CONDITION}){s2}'
                     else:
-                        content = f'({CONDITION}) {content}'
+                        content = f'({CONDITION}){content}'
                 else:
                     # 要件でない場合は、条件はそのまま出力する
-                    markdown_text += f"\n\n{CONDITION}\n\n"
+                    markdown_text += f"{CONDITION}\n\n"
                     CONDITION = ''
 
             # 1行として出力
@@ -154,6 +155,8 @@ def clean_extra_newlines(text):
 
     # 先頭の「改行のみ」を削除（インデント用の半角スペースは保持）
     text = re.sub(r"^\n+", "", text)
+
+    text = text.replace('\n', ' ')
 
     # 末尾の無駄な空白や改行を削除
     return text.rstrip()
