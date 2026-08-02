@@ -48,6 +48,8 @@ def html_to_markdown(html_content):
 
 
 CONDITION = ''
+TAG_NEST_LEVEL = -1
+
 def parse_element(element, depth=0):
     def is_requirement(text:str)->bool:
         req_word = ['MUST', 'REQUIRED', 'SHALL', 'SHOULD', 'RECOMMENDED', 'MAY', 'OPTIONAL']
@@ -56,7 +58,8 @@ def parse_element(element, depth=0):
                 return True
         return False
 
-    global CONDITION
+    global CONDITION, TAG_NEST_LEVEL
+    TAG_NEST_LEVEL += 1
     markdown_text = ""
 
     for child in element.children:
@@ -98,10 +101,10 @@ def parse_element(element, depth=0):
 
         elif tag_name in ["ul", "ol"]:
             if element.name == 'li':
-                markdown_text += f"\n{parse_element(child, depth + 1)}"
+                markdown_text += f"{parse_element(child, depth + 1)}"
             else:
 #                markdown_text += f"\n\n{parse_element(child, depth + 1)}\n\n"
-                markdown_text += f"{parse_element(child, depth + 1)}\n\n"
+                markdown_text += f"{parse_element(child, depth + 1)}\n"
 #            if depth == 0:
                 # 最上位の<ul>/<ol>が処理されたら条件をクリアする
 #                CONDITION = ''
@@ -146,7 +149,11 @@ def parse_element(element, depth=0):
         else:
             markdown_text += parse_element(child)
 
-    return clean_extra_newlines(markdown_text)
+    TAG_NEST_LEVEL -= 1
+    if TAG_NEST_LEVEL > 0:
+        return clean_extra_newlines(markdown_text)
+    else:
+        return markdown_text
 
 
 def clean_extra_newlines(text):
@@ -155,8 +162,6 @@ def clean_extra_newlines(text):
 
     # 先頭の「改行のみ」を削除（インデント用の半角スペースは保持）
     text = re.sub(r"^\n+", "", text)
-
-    text = text.replace('\n', ' ')
 
     # 末尾の無駄な空白や改行を削除
     return text.rstrip()
