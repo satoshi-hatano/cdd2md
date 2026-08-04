@@ -111,16 +111,18 @@ def parse_element(element, depth=0):
         tag_name = child.name
 
         if tag_name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+            if tag_name == 'h5':
+                None
             level = int(tag_name[1])
             markdown_text += f"{'#' * level} {parse_element(child).strip()}\n\n"
             CONDITION = ''
 
         elif tag_name in ["p", "div"]:
             text = parse_element(child).strip().replace('\n', ' ')
-            if tag_name == 'p' and text.endswith(':'):
-                # 末尾が':'の<p>要素は条件とみなす
+            if tag_name == 'p' and element.name != 'li' and text.endswith(':'):
+                # 末尾が':'で'<li>'のサブ要素でない<p>要素は条件とみなす
                 CONDITION = text
-            else:
+            elif text.strip():
                 markdown_text += f"{text}\n\n"
 
 #        elif tag_name in ["strong", "b"]:
@@ -133,6 +135,8 @@ def parse_element(element, depth=0):
 
         elif tag_name == "a":
             markdown_text += parse_element(child)
+            if element.name == 'li':
+                markdown_text += '\n'
 
         elif tag_name == "br":
             markdown_text += "  \n"
