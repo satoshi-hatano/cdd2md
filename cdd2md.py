@@ -118,7 +118,9 @@ def parse_element(element, depth=0):
             CONDITION = ''
 
         elif tag_name in ["p", "div"]:
-            text = parse_element(child).strip().replace('\n', ' ')
+            text = parse_element(child).strip()
+            if tag_name == 'p':
+                text = text.replace('\n', ' ')
             if tag_name == 'p' and element.name != 'li' and text.endswith(':'):
                 # 末尾が':'で'<li>'のサブ要素でない<p>要素は条件とみなす
                 CONDITION = text
@@ -135,8 +137,6 @@ def parse_element(element, depth=0):
 
         elif tag_name == "a":
             markdown_text += parse_element(child)
-            if element.name == 'li':
-                markdown_text += '\n'
 
         elif tag_name == "br":
             markdown_text += "  \n"
@@ -146,6 +146,7 @@ def parse_element(element, depth=0):
 
         elif tag_name in ["ul", "ol"]:
             if element.name == 'li':
+                markdown_text += '\n'
                 text = f"{parse_element(child, depth + 1)}"
             else:
                 text = f"{parse_element(child, depth + 1)}\n\n"
