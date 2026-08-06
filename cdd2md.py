@@ -55,38 +55,8 @@ def html_to_markdown(html_content)->str|str:
     body = soup.find('div', class_='devsite-article-body clearfix')
     for e in body(filter):
         e.decompose()
-    return title, parse_element(body)
-    markdown_text = ''
-    li = False
-    lines = parse_element(body).splitlines(keepends=True)
-    for line in lines:
-        if not line.strip():
-            # 空行はカットする
-            continue
-        elif line[0] == '*':
-            if not li:
-                # リストの前には空行を入れる
-                line = '\n' + line
-            li = True
-        elif line[0] != '#' and not line[0].isspace():
-            if li:
-                # リストの直後には空行を入れる
-                line = '\n' + line
-                li = False
-            line += '\n'
-        elif line[0] == '#':
-            if li:
-                line = '\n' + line
-                li = False
-        # 最初の空白以外の文字以降の2つ以上の空白を1つにする
-        i = 0
-        while i < len(line) and line[i] == ' ':
-            i += 1
-        if i < len(line):
-            line = f'{' '*i}' + re.sub(r" {2,}", " ", line[i:])
-
-        markdown_text += line
-    return title, markdown_text
+    markdown = parse_element(body).replace('<br>', '\n')
+    return title, markdown
 
 
 CONDITION = ''
@@ -127,19 +97,12 @@ def parse_element(element, depth=0):
             elif text.strip():
                 markdown_text += f"{text}\n\n"
 
-#        elif tag_name in ["strong", "b"]:
-#            print(f"**{parse_element(child)}**")
-#            markdown_text += f"**{parse_element(child)}**"
-
-#        elif tag_name in ["em", "i"]:
-#            print(f"*{parse_element(child)}*")
-#            markdown_text += f"*{parse_element(child)}*"
-
         elif tag_name == "a":
             markdown_text += parse_element(child)
 
         elif tag_name == "br":
-            markdown_text += "  \n"
+            # <br>タグは後で一括して'\n'に置き換える
+            markdown_text += "<br>"
 
         elif tag_name == 'code':
             markdown_text += parse_element(child)
