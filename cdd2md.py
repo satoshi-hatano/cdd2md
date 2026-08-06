@@ -151,7 +151,8 @@ def parse_element(element, depth=0):
                 markdown_text += '\n'
 
         elif tag_name == 'table':
-            markdown_text += table_to_markdown(child)
+            ext = table_to_markdown(child) + '\n'
+            markdown_text += text
 
         else:
             markdown_text += parse_element(child)
@@ -206,7 +207,8 @@ def table_to_markdown(table) -> str:
             cell_text = str(td)
             cell_text = cell_text.replace('<br>', '\n').replace('<br/>', '\n')
             cell_soup = BeautifulSoup(cell_text, 'html.parser')
-            col = re.sub('\\s', ' ', cell_soup.get_text()).strip()
+            # col = re.sub('\\s', ' ', cell_soup.get_text()).strip()
+            col = cell_soup.get_text().strip()
             ## Replace any remaining newlines with actual line breaks
             col = col.replace('\n', '<br>')
             cols.append(col)
