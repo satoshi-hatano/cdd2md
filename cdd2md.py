@@ -51,7 +51,10 @@ def html_to_markdown(html_content)->str|str:
         return False
 
     soup = BeautifulSoup(html_content, "html5lib")
-    title = soup.find(lambda t: t.name == 'h1' and t.get('class') == ['devsite-page-title']).contents[0].lstrip().rstrip().replace(' ', '_')
+    if (h1 := soup.find(lambda t: t.name == 'h1' and t.get('class') == ['devsite-page-title'])):
+        title = h1.contents[0].lstrip().rstrip().replace(' ', '_')
+    else:
+        title = 'output'
     body = soup.find('div', class_='devsite-article-body clearfix')
     for e in body(filter):
         e.decompose()
@@ -81,8 +84,6 @@ def parse_element(element, depth=0):
         tag_name = child.name
 
         if tag_name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-            if tag_name == 'h5':
-                None
             level = int(tag_name[1])
             markdown_text += f"{'#' * level} {parse_element(child).strip()}\n\n"
             CONDITION = ''
@@ -92,7 +93,7 @@ def parse_element(element, depth=0):
             if tag_name == 'p':
                 text = text.replace('\n', ' ')
             if tag_name == 'p' and element.name != 'li' and text.endswith(':'):
-                # 末尾が':'で'<li>'のサブ要素でない<p>要素は条件とみなす
+                # <li>'のサブ要素でない<p>要素で末尾が':'となっているものは条件とみなす
                 CONDITION = text
             elif text.strip():
                 markdown_text += f"{text}\n\n"
@@ -114,6 +115,7 @@ def parse_element(element, depth=0):
             else:
                 text = f"{parse_element(child, depth + 1)}\n\n"
             markdown_text += text
+
         elif tag_name == "li":
             parent_name = child.parent.name if child.parent else "ul"
             # ネストレベルに応じたインデント（深さ1以上なら半角スペース4つずつ追加）
@@ -151,7 +153,7 @@ def parse_element(element, depth=0):
                 markdown_text += '\n'
 
         elif tag_name == 'table':
-            ext = table_to_markdown(child) + '\n'
+            text = table_to_markdown(child) + '\n'
             markdown_text += text
 
         else:
