@@ -63,6 +63,7 @@ def html_to_markdown(html_content)->str|str:
 
 
 CONDITION = ''
+SECTION_NO = ''
 def parse_element(element, depth=0):
     # 文が要件(Requirement)か判定する
     def is_requirement(text:str)->bool:
@@ -73,11 +74,11 @@ def parse_element(element, depth=0):
         return False
     # 文が条件(Condition)か判定する
     def is_condition(text:str)->bool:
-        if text.endswith(':'):
+        if text.endswith(':') or re.match(r'^If.+they$', text):
             return True
         return False
 
-    global CONDITION
+    global CONDITION, SECTION_NO
     markdown_text = ""
 
     for child in element.children:
@@ -90,7 +91,9 @@ def parse_element(element, depth=0):
         match (tag_name := child.name):
             case "h1" | "h2" | "h3" | "h4" | "h5" | "h6":
                 level = int(tag_name[1])
-                markdown_text += f"{'#' * level} {parse_element(child).strip()}\n\n"
+                section = parse_element(child).strip()
+                markdown_text += f"{'#' * level} {section}\n\n"
+                SECTION_NO = section[:section.index(' ')]
                 CONDITION = ''
     
             case "p" | "div":
@@ -99,6 +102,9 @@ def parse_element(element, depth=0):
                     text = text.replace('\n', ' ')
                 if tag_name == 'p' and element.name != 'li' and is_condition(text):
                     # <li>'のサブ要素でない<p>要素で末尾が':'となっているものは条件とみなす
+                    if not text.endswith(':'):
+                        # 末尾が':'になっていない場合は付加する
+                        text += ':'
                     CONDITION = text
                 elif text.strip():
                     markdown_text += f"{text}\n\n"
@@ -142,9 +148,11 @@ def parse_element(element, depth=0):
                         # <li>が要件なら間に条件を挟む
                         if (n := content.find(']') + 1) > 0:
                             # 要件IDがある場合は、要件IDと本文の間に挿入する
-                            s1 = content[:n]
-                            s2 = content[n:]
-                            content = f'{s1} ({CONDITION}){s2}'
+                            # CDDの要件IDはユニークでないため、元のIDにセクションNo.を付加してユニークになるようにする
+                            req_id = content[:n]
+                            req_id = f'{req_id[0]}{SECTION_NO}_{req_id[1:]}'
+                            req_text = content[n:]
+                            content = f'{req_id} ({CONDITION}){req_text}'
                         else:
                             content = f'({CONDITION}){content}'
                     else:
@@ -157,94 +165,13 @@ def parse_element(element, depth=0):
                     markdown_text += '\n'
 
             case 'table':
-                text = table_to_markdown(child) + '\n'
+                text = table_to_markdown(child) + '\n\n'
                 markdown_text += text
 
             case _:
                 markdown_text += parse_element(child)
 
     return clean_extra_newlines(markdown_text)
-
-'''
-        tag_name = child.name
-
-        if tag_name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-            level = int(tag_name[1])
-            markdown_text += f"{'#' * level} {parse_element(child).strip()}\n\n"
-            CONDITION = ''
-
-        elif tag_name in ["p", "div"]:
-            text = parse_element(child).strip()
-            if tag_name == 'p':
-                text = text.replace('\n', ' ')
-            if tag_name == 'p' and element.name != 'li' and text.endswith(':'):
-                # <li>'のサブ要素でない<p>要素で末尾が':'となっているものは条件とみなす
-                CONDITION = text
-            elif text.strip():
-                markdown_text += f"{text}\n\n"
-
-        elif tag_name == "a":
-            markdown_text += parse_element(child)
-
-        elif tag_name == "br":
-            # <br>タグは後で一括して'\n'に置き換える
-            markdown_text += "<br>"
-
-        elif tag_name == 'code':
-            markdown_text += parse_element(child)
-
-        elif tag_name in ["ul", "ol"]:
-            if element.name == 'li':
-                markdown_text += '\n'
-                text = f"{parse_element(child, depth + 1)}"
-            else:
-                text = f"{parse_element(child, depth + 1)}\n\n"
-            markdown_text += text
-
-        elif tag_name == "li":
-            parent_name = child.parent.name if child.parent else "ul"
-            # ネストレベルに応じたインデント（深さ1以上なら半角スペース4つずつ追加）
-            indent = "    " * max(0, depth - 1)
-            # リスト記号の設定
-            prefix = "1. " if parent_name == "ol" else "* "
-            if child.string:
-                # 子要素がない
-                content = child.string.replace('\n', ' ')
-            else:
-                # 子要素の解析結果を取得
-                content = parse_element(child, depth).strip()
-                if not re.search('\\n +\\*', content):
-                    # 入れ子の<li>がない
-                    content = content.replace('\n', ' ')
-            if (depth - 1) == 0 and CONDITION:
-                # 最上位の<li>で条件がある場合
-                if is_requirement(content) or is_requirement(CONDITION):
-                    # <li>が要件なら間に条件を挟む
-                    if (n := content.find(']') + 1) > 0:
-                        # 要件IDがある場合は、要件IDと本文の間に挿入する
-                        s1 = content[:n]
-                        s2 = content[n:]
-                        content = f'{s1} ({CONDITION}){s2}'
-                    else:
-                        content = f'({CONDITION}){content}'
-                else:
-                    # 要件でない場合は、条件はそのまま出力する
-                    markdown_text += f"{CONDITION}\n\n"
-                    CONDITION = ''
-
-            # 1行として出力
-            markdown_text += f"{indent}{prefix}{content}\n"
-            if depth - 1 == 0:
-                markdown_text += '\n'
-
-        elif tag_name == 'table':
-            text = table_to_markdown(child) + '\n'
-            markdown_text += text
-
-        else:
-            markdown_text += parse_element(child)
-    return clean_extra_newlines(markdown_text)
-'''
 
 
 def clean_extra_newlines(text):
@@ -305,7 +232,7 @@ def table_to_markdown(table) -> str:
     return '\n'.join(markdown_lines)
 
 
-# --- 動作確認 ---
+# main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='''Android CDDをMarkdown形式に変換する。
 
