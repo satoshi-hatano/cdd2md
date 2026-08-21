@@ -92,7 +92,7 @@ def parse_element(element, depth=0):
             case "h1" | "h2" | "h3" | "h4" | "h5" | "h6":
                 level = int(tag_name[1])
                 section = parse_element(child).strip()
-                markdown_text += f"{'#' * level} {section}\n\n"
+                markdown_text += f"{'#' * level} {section}\n"
                 SECTION_NO = section[:section.index(' ')]
                 CONDITION = ''
     
@@ -121,10 +121,50 @@ def parse_element(element, depth=0):
 
             case "ul" | "ol":
                 if element.name == 'li':
-                    markdown_text += '\n'
-                    text = f"{parse_element(child, depth + 1)}"
+                    text = f"{parse_element(child, depth + 1)}\n"
                 else:
                     text = f"{parse_element(child, depth + 1)}\n\n"
+                if depth == 0:
+                    # 行が分割されているli要素を1行にまとめる
+                    t = ''
+                    for l in text.splitlines():
+                        if (s := l.strip()).startswith('* ') or s.startswith('1. '):
+                            t += (l + '\n')
+                        elif s:
+                            t = t[:-1] + f' {s}\n'
+                    text = t
+                    # 要件の処理
+                    need_condition = False
+                    lines = text.splitlines()
+                    for l in lines:
+                        if is_requirement(l):
+                            need_condition = True
+                            break
+
+                    if need_condition and CONDITION:
+                        t = ''
+                        # 要件文に条件を挿入する
+                        for l in lines:
+                            if not is_requirement(l):
+                                t += (l + '\n')
+                                continue
+                            elif (o := l.find('[') + 1) > 1 and (c := l.find(']')) > o:
+                                # 要件IDがある場合は、要件IDと本文の間に挿入する
+                                # CDDの要件IDはユニークでないため、元のIDにセクションNo.を付加してユニークになるようにする
+                                req_id = f'{SECTION_NO}_{l[o:c]}'
+                                t += f'[{req_id}] ({CONDITION}){l[c+1:]}\n'
+                            else:
+                                for m in ['* ', '1. ']:
+                                    if (n := l.find(m)) != -1:
+                                        n += len(m)
+                                        t += f'{l[:n]}({CONDITION}) {l[n:]}\n'
+                                        break
+                        text = t
+                    elif CONDITION:
+                        # 要件がない場合は、条件はそのまま出力する。
+                        text = f'{CONDITION}\n\n{text}'
+                        CONDITION = ''
+                    text += '\n'
                 markdown_text += text
 
             case "li":
@@ -134,35 +174,11 @@ def parse_element(element, depth=0):
                 # リスト記号の設定
                 prefix = "1. " if parent_name == "ol" else "* "
                 if child.string:
-                    # 子要素がない
-                    content = child.string.replace('\n', ' ')
+                    content = child.string
                 else:
-                    # 子要素の解析結果を取得
                     content = parse_element(child, depth).strip()
-                    if not re.search('\\n +\\*', content):
-                        # 入れ子の<li>がない
-                        content = content.replace('\n', ' ')
-                if (depth - 1) == 0 and CONDITION:
-                    # 最上位の<li>で条件がある場合
-                    if is_requirement(content) or is_requirement(CONDITION):
-                        # <li>が要件なら間に条件を挟む
-                        if (n := content.find(']') + 1) > 0:
-                            # 要件IDがある場合は、要件IDと本文の間に挿入する
-                            # CDDの要件IDはユニークでないため、元のIDにセクションNo.を付加してユニークになるようにする
-                            req_id = content[:n]
-                            req_id = f'{req_id[0]}{SECTION_NO}_{req_id[1:]}'
-                            req_text = content[n:]
-                            content = f'{req_id} ({CONDITION}){req_text}'
-                        else:
-                            content = f'({CONDITION}){content}'
-                    else:
-                        # 要件でない場合は、条件はそのまま出力する
-                        markdown_text += f"{CONDITION}\n\n"
-                        CONDITION = ''
                 # 1行として出力
                 markdown_text += f"{indent}{prefix}{content}\n"
-                if depth - 1 == 0:
-                    markdown_text += '\n'
 
             case 'table':
                 text = table_to_markdown(child) + '\n\n'
