@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import re
+import re, sys
 from bs4 import BeautifulSoup, NavigableString
 import requests
 import argparse
@@ -261,13 +261,13 @@ if __name__ == "__main__":
     parser.add_argument('-o', dest='out_file', type=str, default='', help='出力するファイル名を指定する。省略時はHTMLのタイトルをファイル名とする')
     parser.add_argument('uri', type=str, nargs='?', default='https://source.android.com/docs/compatibility/15/android-15-cdd?hl=en', help='Android CDDのURLまたはローカルファイルパスを指定する')
     args = parser.parse_args()
-    print(f"{args.uri} からの変換を開始します...\n")
+    print(f"{args.uri} からの変換を開始\n", file=sys.stderr)
 
     title, markdown = convert_to_markdown(args.uri)
 
-    print("--- 変換結果 ---")
     if not (filename := args.out_file):
         now = datetime.now()
         filename = title + '_{:02d}{:02d}{:02d}'.format(now.year-2000, now.month, now.day) + '.md'
     with open(filename, mode='w') as f:
         print(markdown, file=f)
+    print(f"変換終了：{filename}", file=sys.stderr)
