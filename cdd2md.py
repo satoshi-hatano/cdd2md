@@ -90,10 +90,18 @@ def parse_element(element, depth=0):
 
         match (tag_name := child.name):
             case "h1" | "h2" | "h3" | "h4" | "h5" | "h6":
-                level = int(tag_name[1])
                 section = parse_element(child).strip()
+                if (n := section.index(' ')) != -1:
+                    section_no = section[:n]
+                    level = section_no.count('.')
+                    if section_no[-1].isdigit():
+                        section_no += '.'
+                        level += 1
+                else:
+                    level = int(tag_name[1:]) - 1
+
                 markdown_text += f"{'#' * level} {section}\n"
-                SECTION_NO = section[:section.index(' ')]
+                SECTION_NO = section_no
                 CONDITION = ''
     
             case "p" | "div":
