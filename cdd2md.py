@@ -5,41 +5,43 @@ from bs4 import BeautifulSoup, NavigableString
 import requests
 import argparse
 from datetime import datetime
+from collections import defaultdict
 
+
+'''
+    コンテンツをMarkdownに変換する
+'''
 def convert_to_markdown(uri:str)->str|str:
     if uri.startswith('http://') or uri.startswith('https://'):
-        return url_to_markdown(uri)
+        # http:// またはhttps://で始まっていたらWEBコンテンツとみなす。
+        try:
+            # 1. URLからHTMLを取得（ユーザーエージェントを設定して拒否されにくくする）
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+            response = requests.get(uri, headers=headers, timeout=10)
+
+            # ステータスコードが200（成功）かチェック
+            response.raise_for_status()
+
+            # 文字化け対策（レスポンスから適切なエンコーディングを設定）
+            response.encoding = response.apparent_encoding
+
+            # 2. HTMLをMarkdownに変換
+            return html_to_markdown(response.text)
+
+        except requests.exceptions.RequestException as e:
+            return f"エラー: HTMLの取得に失敗しました。({e})", ''
     else:
-        return file_to_markdown(uri)
+        # そうでなければローカルファイルとみなす。
+        with open(uri, 'r', encoding='UTF-8') as file:
+            contents = file.read()
+            return html_to_markdown(contents)
 
 
-def url_to_markdown(url)->str|str:
-    try:
-        # 1. URLからHTMLを取得（ユーザーエージェントを設定して拒否されにくくする）
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-
-        # ステータスコードが200（成功）かチェック
-        response.raise_for_status()
-
-        # 文字化け対策（レスポンスから適切なエンコーディングを設定）
-        response.encoding = response.apparent_encoding
-
-        # 2. HTMLをMarkdownに変換
-        return html_to_markdown(response.text)
-
-    except requests.exceptions.RequestException as e:
-        return f"エラー: HTMLの取得に失敗しました。({e})"
-
-
-def file_to_markdown(path:str)->str|str:
-    with open(path, 'r', encoding='UTF-8') as file:
-        contents = file.read()
-        return html_to_markdown(contents)
-
-
+'''
+    HTMLをMarkdownに変換する
+'''
 def html_to_markdown(html_content)->str|str:
     def filter(tag):
         if tag.name == 'style' or tag.name == 'del':
@@ -62,11 +64,17 @@ def html_to_markdown(html_content)->str|str:
     return title, markdown
 
 
+'''
+    HTML要素をMarkdownに変換する
+'''
 CONDITION = ''
 SECTION_NO = ''
 def parse_element(element, depth=0):
     # 文が要件(Requirement)か判定する
     def is_requirement(text:str)->bool:
+        if re.match(r'^\s*\*\s+\[([CHTAW(Tab)]|\d).+\]', text):
+            # 要件IDが付いていたら要件
+            return True
         req_word = ['MUST', 'REQUIRED', 'SHALL', 'SHOULD', 'RECOMMENDED', 'MAY', 'OPTIONAL']
         for w in req_word:
             if w in text:
@@ -80,7 +88,7 @@ def parse_element(element, depth=0):
 
     global CONDITION, SECTION_NO
     markdown_text = ""
-
+    req_id_cache = defaultdict(int)
     for child in element.children:
         if isinstance(child, NavigableString):
             # 空白だけの行はスキップする
@@ -91,15 +99,18 @@ def parse_element(element, depth=0):
         match (tag_name := child.name):
             case "h1" | "h2" | "h3" | "h4" | "h5" | "h6":
                 section = parse_element(child).strip()
-                if (n := section.index(' ')) != -1:
+                if re.match(r'^\d+\.', section):
+                    n = section.index(' ')
                     section_no = section[:n]
                     level = section_no.count('.')
                     if section_no[-1].isdigit():
                         section_no += '.'
                         level += 1
+                    # 要件IDユニーク化のためのキャッシュをクリアする。
+                    req_id_cache.clear()
                 else:
-                    level = int(tag_name[1:]) - 1
-
+                    # セクションNo.が付いていないものは読み飛ばす
+                    continue
                 markdown_text += f"{'#' * level} {section}\n"
                 SECTION_NO = section_no
                 CONDITION = ''
@@ -148,31 +159,35 @@ def parse_element(element, depth=0):
                         if is_requirement(l):
                             need_condition = True
                             break
-
                     if need_condition and CONDITION:
-                        t = ''
+                        text = ''
                         # 要件文に条件を挿入する
                         for l in lines:
                             if not is_requirement(l):
-                                t += (l + '\n')
+                                text += (l + '\n')
                                 continue
                             elif (o := l.find('[') + 1) > 1 and (c := l.find(']')) > o:
+                                t = l[:o-1]
                                 # 要件IDがある場合は、要件IDと本文の間に挿入する
                                 # CDDの要件IDはユニークでないため、元のIDにセクションNo.を付加してユニークになるようにする
-                                req_id = f'{SECTION_NO}_{l[o:c]}'
-                                t += f'[{req_id}] ({CONDITION}){l[c+1:]}\n'
+                                req_id = l[o:c]
+                                n = req_id_cache[f'{SECTION_NO}_{req_id}']
+                                req_id_cache[f'{SECTION_NO}_{req_id}'] += 1
+                                req_id = f'{SECTION_NO}_{n}_{req_id}'
+                                text += (t + f'[{req_id}] ({CONDITION}){l[c+1:]}\n')
                             else:
                                 for m in ['* ', '1. ']:
                                     if (n := l.find(m)) != -1:
                                         n += len(m)
-                                        t += f'{l[:n]}({CONDITION}) {l[n:]}\n'
+                                        text += f'{l[:n]}({CONDITION}) {l[n:]}\n'
                                         break
-                        text = t
                     elif CONDITION:
                         # 要件がない場合は、条件はそのまま出力する。
                         text = f'{CONDITION}\n\n{text}'
                         CONDITION = ''
                     text += '\n'
+                if markdown_text and markdown_text[-1] != '\n':
+                    markdown_text += '\n'
                 markdown_text += text
 
             case "li":
@@ -190,6 +205,9 @@ def parse_element(element, depth=0):
 
             case 'table':
                 text = table_to_markdown(child) + '\n\n'
+                if markdown_text and markdown_text.endswith('\n\n'):
+                    # tableは前の行との間に空行を入れない
+                    markdown_text = markdown_text[:-1]
                 markdown_text += text
 
             case _:
@@ -198,6 +216,9 @@ def parse_element(element, depth=0):
     return clean_extra_newlines(markdown_text)
 
 
+'''
+    余分な空白、改行を削除する
+'''
 def clean_extra_newlines(text):
     # 3つ以上連続する改行を2つにまとめる
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -209,15 +230,15 @@ def clean_extra_newlines(text):
     return text.rstrip()
 
 
-def table_to_markdown(table) -> str:
-    """
+"""
     Convert BeautifulSoup Table tag object to Markdown format
 
     Args:
         table: BeautifulSoup Table tag object
     Returns:
         str: Table string in Markdown format
-    """
+"""
+def table_to_markdown(table) -> str:
     if not table:
         return "No table found"
 
@@ -227,10 +248,11 @@ def table_to_markdown(table) -> str:
     headers = []
     for th in table.find_all('th'):
         ## Replace <br> and <br/> with newline
-        header_text = str(th)
-        header_text = header_text.replace('<br>', '\n').replace('<br/>', '\n')
-        header_soup = BeautifulSoup(header_text, 'html.parser')
-        header = re.sub('\\s', ' ', header_soup.get_text()).strip()
+        header = parse_element(th).strip()
+#        header_text = str(th)
+#        header_text = header_text.replace('<br>', '\n').replace('<br/>', '\n')
+#        header_soup = BeautifulSoup(header_text, 'html.parser')
+#        header = re.sub('\\s', ' ', header_soup.get_text()).strip()
         headers.append(header)
 
     if headers:
@@ -242,11 +264,12 @@ def table_to_markdown(table) -> str:
         cols = []
         for td in row.find_all('td'):
             ## Replace <br> and <br/> with newline
-            cell_text = str(td)
-            cell_text = cell_text.replace('<br>', '\n').replace('<br/>', '\n')
-            cell_soup = BeautifulSoup(cell_text, 'html.parser')
+            col = parse_element(td).strip()
+#            cell_text = str(td)
+#            cell_text = cell_text.replace('<br>', '\n').replace('<br/>', '\n')
+#            cell_soup = BeautifulSoup(cell_text, 'html.parser')
             # col = re.sub('\\s', ' ', cell_soup.get_text()).strip()
-            col = cell_soup.get_text().strip()
+#            col = cell_soup.get_text().strip()
             ## Replace any remaining newlines with actual line breaks
             col = col.replace('\n', '<br>')
             cols.append(col)
