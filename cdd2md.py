@@ -153,38 +153,46 @@ def parse_element(element, depth=0):
                             t = t[:-1] + f' {s}\n'
                     text = t
                     # 要件の処理
-                    need_condition = False
                     lines = text.splitlines()
+                    requirement = False
                     for l in lines:
                         if is_requirement(l):
-                            need_condition = True
+                            requirement = True
                             break
-                    if need_condition and CONDITION:
+                    if not requirement:
+                        # 要件がない
+                        if CONDITION:
+                            # 条件がある：そのまま出力する。
+                            text = f'{CONDITION}\n\n{text}'
+                            CONDITION = ''
+                    else:
                         text = ''
-                        # 要件文に条件を挿入する
+                        # リストの各行に対して
                         for l in lines:
                             if not is_requirement(l):
+                                # 要件でなければそのまま
                                 text += (l + '\n')
                                 continue
                             elif (o := l.find('[') + 1) > 1 and (c := l.find(']')) > o:
                                 t = l[:o-1]
-                                # 要件IDがある場合は、要件IDと本文の間に挿入する
+                                # 要件IDがある場合は、条件を要件IDと本文の間に挿入する
                                 # CDDの要件IDはユニークでないため、元のIDにセクションNo.を付加してユニークになるようにする
                                 req_id = l[o:c]
                                 n = req_id_cache[f'{SECTION_NO}_{req_id}']
                                 req_id_cache[f'{SECTION_NO}_{req_id}'] += 1
                                 req_id = f'{SECTION_NO}_{n}_{req_id}'
-                                text += (t + f'[{req_id}] ({CONDITION}){l[c+1:]}\n')
+                                cond = f'({CONDITION})' if CONDITION else ''
+                                text += (t + f'[{req_id}] {cond}{l[c+1:]}\n')
                             else:
-                                for m in ['* ', '1. ']:
-                                    if (n := l.find(m)) != -1:
-                                        n += len(m)
-                                        text += f'{l[:n]}({CONDITION}) {l[n:]}\n'
-                                        break
-                    elif CONDITION:
-                        # 要件がない場合は、条件はそのまま出力する。
-                        text = f'{CONDITION}\n\n{text}'
-                        CONDITION = ''
+                                # IDが付いていない要件
+                                if CONDITION:
+                                    for m in ['* ', '1. ']:
+                                        if (n := l.find(m)) != -1:
+                                            n += len(m)
+                                            text += f'{l[:n]}({CONDITION}) {l[n:]}\n'
+                                            break
+                                else:
+                                    text += (l + '\n')
                     text += '\n'
                 if markdown_text and markdown_text[-1] != '\n':
                     markdown_text += '\n'
