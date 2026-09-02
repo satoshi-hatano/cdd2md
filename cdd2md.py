@@ -69,6 +69,7 @@ def html_to_markdown(html_content)->str|str:
 '''
 CONDITION = ''
 SECTION_NO = ''
+SKIP = False
 def parse_element(element, depth=0):
     # 文が要件(Requirement)か判定する
     def is_requirement(text:str)->bool:
@@ -86,7 +87,7 @@ def parse_element(element, depth=0):
             return True
         return False
 
-    global CONDITION, SECTION_NO
+    global CONDITION, SECTION_NO, SKIP
     markdown_text = ""
     req_id_cache = defaultdict(int)
     for child in element.children:
@@ -96,6 +97,8 @@ def parse_element(element, depth=0):
                 markdown_text += str(child)
             continue
 
+        if SKIP and child.name != 'h2':
+            continue
         match (tag_name := child.name):
             case "h1" | "h2" | "h3" | "h4" | "h5" | "h6":
                 section = parse_element(child).strip()
@@ -109,12 +112,14 @@ def parse_element(element, depth=0):
                     # 要件IDユニーク化のためのキャッシュをクリアする。
                     req_id_cache.clear()
                 else:
-                    # セクションNo.が付いていないものは読み飛ばす
+                    # セクションNo.が付いていないものはそのまま出力する
+                    markdown_text += (section + '\n')
                     continue
                 markdown_text += f"{'#' * level} {section}\n"
                 SECTION_NO = section_no
                 CONDITION = ''
-    
+                if 'Document Changelog' in section:
+                    SKIP = True
             case "p" | "div":
                 text = parse_element(child).strip()
                 if tag_name == 'p':
@@ -135,7 +140,7 @@ def parse_element(element, depth=0):
                 # <br>タグは後で一括して'\n'に置き換える
                 markdown_text += "<br>"
 
-            case 'code':
+            case 'code' | 'strong':
                 markdown_text += parse_element(child)
 
             case "ul" | "ol":
@@ -219,7 +224,8 @@ def parse_element(element, depth=0):
                 markdown_text += text
 
             case _:
-                markdown_text += parse_element(child)
+                # 必要ないタグは読み飛ばす
+                _ = parse_element(child)
 
     return clean_extra_newlines(markdown_text)
 
